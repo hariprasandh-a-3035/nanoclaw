@@ -35,6 +35,7 @@ import { runSlackChannel } from './channels/slack.js';
 import { runTeamsChannel } from './channels/teams.js';
 import { runTelegramChannel } from './channels/telegram.js';
 import { runWhatsAppChannel } from './channels/whatsapp.js';
+import { runZohoCliqChannel } from './channels/zoho-cliq.js';
 import { pingCliAgent, type PingResult } from './lib/agent-ping.js';
 import { brightSelect } from './lib/bright-select.js';
 import { offerClaudeAssist } from './lib/claude-assist.js';
@@ -59,7 +60,7 @@ import { isValidTimezone } from '../src/timezone.js';
 const CLI_AGENT_NAME = 'Terminal Agent';
 const RUN_START = Date.now();
 
-type ChannelChoice = 'telegram' | 'discord' | 'whatsapp' | 'signal' | 'teams' | 'slack' | 'imessage' | 'skip';
+type ChannelChoice = 'telegram' | 'discord' | 'whatsapp' | 'signal' | 'teams' | 'slack' | 'imessage' | 'zoho-cliq' | 'skip';
 
 async function main(): Promise<void> {
   // Parse CLI flags first — `--help` short-circuits before we render anything,
@@ -433,6 +434,8 @@ async function main(): Promise<void> {
       await runSlackChannel(displayName!);
     } else if (channelChoice === 'imessage') {
       await runIMessageChannel(displayName!);
+    } else if (channelChoice === 'zoho-cliq') {
+      await runZohoCliqChannel(displayName!);
     } else {
       p.log.info(
         brandBody(
@@ -481,7 +484,7 @@ async function main(): Promise<void> {
       }
       if (!res.terminal?.fields.CONFIGURED_CHANNELS) {
         notes.push(
-          '• Want to chat from your phone? Add a messaging app with `/add-telegram`, `/add-slack`, or `/add-discord`.',
+          '• Want to chat from your phone? Add a messaging app with `/add-telegram`, `/add-slack`, `/add-discord`, or `/add-zoho-cliq`.',
         );
       }
       if (notes.length > 0) {
@@ -1052,6 +1055,7 @@ async function askChannelChoice(): Promise<ChannelChoice> {
           hint: 'needs public URL',
         },
         { value: 'teams', label: 'Yes, connect Microsoft Teams', hint: 'complex setup' },
+        { value: 'zoho-cliq', label: 'Yes, connect Zoho Cliq' },
         { value: 'skip', label: 'Skip for now', hint: "I'll just use the terminal" },
       ],
     }),

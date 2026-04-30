@@ -7,3 +7,6 @@
 // self-registration import below.
 
 import './cli.js';
+
+// zoho-cliq
+import './zoho-cliq.js';
