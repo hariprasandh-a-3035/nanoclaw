@@ -17,7 +17,7 @@
  *
  * Rate limits (per user per minute):
  *   Messages read: 15 · Messages post: 50
- * The adapter polls at 5 s intervals and caps per-cycle message reads to 3
+ * The adapter polls at 60 s intervals and caps per-cycle message reads to 3
  * to stay safely under the 15 req/min messages quota.
  *
  * Access token is held in memory only — refreshed on startup and every ~55 min.
@@ -36,7 +36,7 @@ import { registerChannelAdapter } from './channel-registry.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = 60_000;
 const MAX_MESSAGE_POLLS_PER_CYCLE = 3;
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
 
