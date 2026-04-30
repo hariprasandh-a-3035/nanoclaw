@@ -76,6 +76,9 @@ export async function runZohoCliqChannel(displayName: string): Promise<void> {
   // Fetch the authenticated user's ID for agent wiring.
   const userId = await fetchMyUserId(apiUrl, clientId, clientSecret, refreshToken, accountsUrl);
 
+  // Verify connectivity: post a test message and fetch recent messages.
+  await verifyConnection(apiUrl, clientId, clientSecret, refreshToken, accountsUrl, chatIds.split(',')[0].trim());
+
   // Use the first configured chat as the primary DM platform ID.
   const primaryChatId = chatIds.split(',')[0].trim();
 
@@ -451,6 +454,81 @@ async function fetchMyUserId(
       'Check your credentials and retry setup.',
     );
     throw new Error('unreachable');
+  }
+}
+
+// ── Verify connection ──────────────────────────────────────────────────────
+
+/**
+ * Post a test message to the chat and fetch recent messages to verify connectivity.
+ */
+async function verifyConnection(
+  apiUrl: string,
+  clientId: string,
+  clientSecret: string,
+  refreshToken: string,
+  accountsUrl: string,
+  chatId: string,
+): Promise<void> {
+  const s = p.spinner();
+  s.start('Verifying connection…');
+
+  try {
+    // Get a fresh access token.
+    const tokenParams = new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+    });
+    const tokenRes = await fetch(`${accountsUrl}/oauth/v2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams.toString(),
+    });
+    const tokenData = (await tokenRes.json()) as { access_token?: string };
+    if (!tokenData.access_token) {
+      s.stop(k.dim('Could not verify connection (token refresh failed)'));
+      return;
+    }
+    const headers = { Authorization: `Zoho-oauthtoken ${tokenData.access_token}` };
+
+    // Post a test message.
+    const postRes = await fetch(`${apiUrl}/api/v2/chats/${chatId}/message`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: '👋 NanoClaw connected successfully.' }),
+    });
+
+    if (!postRes.ok) {
+      s.stop(k.dim(`Could not post test message (${postRes.status})`));
+      return;
+    }
+
+    // Fetch recent messages.
+    const msgRes = await fetch(`${apiUrl}/api/v2/chats/${chatId}/messages?limit=5`, { headers });
+    if (msgRes.ok) {
+      const msgData = (await msgRes.json()) as { data?: Array<{ text?: string; content?: { text?: string }; sender?: { name?: string } }> };
+      const messages = msgData.data ?? [];
+      if (messages.length > 0) {
+        const preview = messages
+          .slice(0, 3)
+          .map((m) => {
+            const text = m.text || m.content?.text || '(no text)';
+            const sender = m.sender?.name ?? 'unknown';
+            return `  ${k.dim(sender)}: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`;
+          })
+          .join('\n');
+        s.stop('Connection verified ✓');
+        p.log.info(`Recent messages:\n${preview}`);
+      } else {
+        s.stop('Connection verified ✓ (no recent messages)');
+      }
+    } else {
+      s.stop('Test message sent ✓ (could not fetch recent messages)');
+    }
+  } catch {
+    s.stop(k.dim('Could not verify connection'));
   }
 }
 

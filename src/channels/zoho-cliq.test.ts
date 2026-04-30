@@ -182,7 +182,10 @@ describe('zoho-cliq adapter', () => {
   describe('env config', () => {
     it('uses ZOHO_CLIQ_API_URL and ZOHO_CLIQ_ACCOUNTS_URL from env', async () => {
       const { readEnvFile } = await import('../env.js');
-      const env = (readEnvFile as unknown as (keys: string[]) => Record<string, string>)(['ZOHO_CLIQ_API_URL', 'ZOHO_CLIQ_ACCOUNTS_URL']);
+      const env = (readEnvFile as unknown as (keys: string[]) => Record<string, string>)([
+        'ZOHO_CLIQ_API_URL',
+        'ZOHO_CLIQ_ACCOUNTS_URL',
+      ]);
       expect(env.ZOHO_CLIQ_API_URL).toBe('https://cliq.zoho.com');
       expect(env.ZOHO_CLIQ_ACCOUNTS_URL).toBe('https://accounts.zoho.com');
     });
@@ -190,8 +193,12 @@ describe('zoho-cliq adapter', () => {
     it('requires all 6 env vars for a valid adapter', async () => {
       const { readEnvFile } = await import('../env.js');
       const env = (readEnvFile as unknown as (keys: string[]) => Record<string, string>)([
-        'ZOHO_CLIQ_CLIENT_ID', 'ZOHO_CLIQ_CLIENT_SECRET', 'ZOHO_CLIQ_REFRESH_TOKEN',
-        'ZOHO_CLIQ_API_URL', 'ZOHO_CLIQ_ACCOUNTS_URL', 'ZOHO_CLIQ_CHAT_IDS',
+        'ZOHO_CLIQ_CLIENT_ID',
+        'ZOHO_CLIQ_CLIENT_SECRET',
+        'ZOHO_CLIQ_REFRESH_TOKEN',
+        'ZOHO_CLIQ_API_URL',
+        'ZOHO_CLIQ_ACCOUNTS_URL',
+        'ZOHO_CLIQ_CHAT_IDS',
       ]);
       expect(Object.keys(env)).toHaveLength(6);
     });
@@ -200,19 +207,28 @@ describe('zoho-cliq adapter', () => {
   describe('scoped polling', () => {
     it('parses ZOHO_CLIQ_CHAT_IDS into individual chat IDs', () => {
       const raw = 'chat-abc, chat-def ,chat-ghi';
-      const parsed = raw.split(',').map((id) => id.trim()).filter(Boolean);
+      const parsed = raw
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
       expect(parsed).toEqual(['chat-abc', 'chat-def', 'chat-ghi']);
     });
 
     it('returns empty array when ZOHO_CLIQ_CHAT_IDS is empty', () => {
       const raw = '';
-      const parsed = raw.split(',').map((id) => id.trim()).filter(Boolean);
+      const parsed = raw
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
       expect(parsed).toEqual([]);
     });
 
     it('handles single chat ID without commas', () => {
       const raw = 'single-chat';
-      const parsed = raw.split(',').map((id) => id.trim()).filter(Boolean);
+      const parsed = raw
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
       expect(parsed).toEqual(['single-chat']);
     });
   });

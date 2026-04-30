@@ -25,13 +25,7 @@
 
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
-import type {
-  ChannelAdapter,
-  ChannelSetup,
-  ConversationInfo,
-  InboundMessage,
-  OutboundMessage,
-} from './adapter.js';
+import type { ChannelAdapter, ChannelSetup, ConversationInfo, InboundMessage, OutboundMessage } from './adapter.js';
 import { registerChannelAdapter } from './channel-registry.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
