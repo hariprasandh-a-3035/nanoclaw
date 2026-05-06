@@ -5,8 +5,9 @@
 # instructions and paste prompts live in setup/channels/zoho-cliq.ts (the
 # clack UI driver). Credentials come in via env vars:
 #   ZOHO_CLIQ_CLIENT_ID, ZOHO_CLIQ_CLIENT_SECRET,
-#   ZOHO_CLIQ_REFRESH_TOKEN, ZOHO_CLIQ_API_URL, ZOHO_CLIQ_ACCOUNTS_URL,
-#   ZOHO_CLIQ_CHAT_IDS
+#   ZOHO_CLIQ_REFRESH_TOKEN, ZOHO_CLIQ_CHANNEL_ENDPOINT,
+#   ZOHO_CLIQ_BOT_UNIQUE_NAME, ZOHO_CLIQ_API_URL,
+#   ZOHO_CLIQ_ACCOUNTS_URL, ZOHO_CLIQ_CHAT_ID
 #
 # Emits exactly one status block on stdout (ADD_ZOHO_CLIQ) at the end. All
 # chatty progress messages go to stderr so setup:auto's raw-log capture
@@ -26,6 +27,7 @@ emit_status() {
   echo "STATUS: ${status}"
   echo "ADAPTER_ALREADY_INSTALLED: ${already}"
   echo "API_URL: ${ZOHO_CLIQ_API_URL:-}"
+  echo "CHANNEL_ENDPOINT: ${ZOHO_CLIQ_CHANNEL_ENDPOINT:-}"
   [ -n "$error" ] && echo "ERROR: ${error}"
   echo "=== END ==="
 }
@@ -59,8 +61,18 @@ if [ -z "${ZOHO_CLIQ_ACCOUNTS_URL:-}" ]; then
   exit 1
 fi
 
-if [ -z "${ZOHO_CLIQ_CHAT_IDS:-}" ]; then
-  emit_status failed "ZOHO_CLIQ_CHAT_IDS env var not set (comma-separated list of chat IDs to poll)"
+if [ -z "${ZOHO_CLIQ_CHANNEL_ENDPOINT:-}" ]; then
+  emit_status failed "ZOHO_CLIQ_CHANNEL_ENDPOINT env var not set"
+  exit 1
+fi
+
+if [ -z "${ZOHO_CLIQ_BOT_UNIQUE_NAME:-}" ]; then
+  emit_status failed "ZOHO_CLIQ_BOT_UNIQUE_NAME env var not set"
+  exit 1
+fi
+
+if [ -z "${ZOHO_CLIQ_CHAT_ID:-}" ]; then
+  emit_status failed "ZOHO_CLIQ_CHAT_ID env var not set"
   exit 1
 fi
 
@@ -122,9 +134,11 @@ persist_env() {
 persist_env ZOHO_CLIQ_CLIENT_ID "$ZOHO_CLIQ_CLIENT_ID"
 persist_env ZOHO_CLIQ_CLIENT_SECRET "$ZOHO_CLIQ_CLIENT_SECRET"
 persist_env ZOHO_CLIQ_REFRESH_TOKEN "$ZOHO_CLIQ_REFRESH_TOKEN"
+persist_env ZOHO_CLIQ_CHANNEL_ENDPOINT "$ZOHO_CLIQ_CHANNEL_ENDPOINT"
+persist_env ZOHO_CLIQ_BOT_UNIQUE_NAME "$ZOHO_CLIQ_BOT_UNIQUE_NAME"
 persist_env ZOHO_CLIQ_API_URL "$ZOHO_CLIQ_API_URL"
 persist_env ZOHO_CLIQ_ACCOUNTS_URL "$ZOHO_CLIQ_ACCOUNTS_URL"
-persist_env ZOHO_CLIQ_CHAT_IDS "$ZOHO_CLIQ_CHAT_IDS"
+persist_env ZOHO_CLIQ_CHAT_ID "$ZOHO_CLIQ_CHAT_ID"
 
 # Container reads from data/env/env (the host mounts it).
 mkdir -p data/env

@@ -23,6 +23,7 @@ import { exec } from 'child_process';
 import * as p from '@clack/prompts';
 import k from 'kleur';
 
+import { readEnvFile } from '../../src/env.js';
 import * as setupLog from '../logs.js';
 import {
   type StepResult,
@@ -57,30 +58,125 @@ function openBrowser(url: string): void {
 }
 
 export async function runZohoCliqChannel(displayName: string): Promise<void> {
-  const { clientId, clientSecret } = await collectClientCredentials();
-  const apiUrl = await collectApiUrl();
-  const chatIds = await collectChatIds();
+  // Read .env up front. setup/auto.ts and nanoclaw.sh do NOT load .env into
+  // process.env (deliberate — keeps secrets out of the env handed to child
+  // processes), so process.env.ZOHO_CLIQ_* is always empty here. Every
+  // reuse check below has to read from this in-memory map, not process.env.
+  const dotenv = readEnvFile([
+    'ZOHO_CLIQ_BOT_UNIQUE_NAME',
+    'ZOHO_CLIQ_CHANNEL_ENDPOINT',
+    'ZOHO_CLIQ_CHAT_ID',
+    'ZOHO_CLIQ_CLIENT_ID',
+    'ZOHO_CLIQ_CLIENT_SECRET',
+    'ZOHO_CLIQ_REFRESH_TOKEN',
+  ]);
+  // Populate process.env so the inner collect*() helpers (which read
+  // process.env.ZOHO_CLIQ_*) see the same view as the top-level reuse check.
+  // Scoped to this run only; we don't write back to .env from here.
+  for (const [k, v] of Object.entries(dotenv)) {
+    if (v && !process.env[k]) process.env[k] = v;
+  }
+
+  const allPresent =
+    dotenv.ZOHO_CLIQ_BOT_UNIQUE_NAME?.trim() &&
+    dotenv.ZOHO_CLIQ_CHANNEL_ENDPOINT?.trim() &&
+    dotenv.ZOHO_CLIQ_CHAT_ID?.trim() &&
+    dotenv.ZOHO_CLIQ_CLIENT_ID?.trim() &&
+    dotenv.ZOHO_CLIQ_CLIENT_SECRET?.trim() &&
+    dotenv.ZOHO_CLIQ_REFRESH_TOKEN?.trim();
+
+  // Ask once whether to reuse the entire .env config. Only show this prompt
+  // when every required value is already present — otherwise we'd be asking
+  // the user to "reuse" a partial config, which would still need prompts
+  // for the missing fields and is more confusing than just falling through
+  // to the per-field reuse prompts inside collect*().
+  //
+  // If the user declines, we want a clean reconfigure — NO per-field
+  // "use existing?" prompts. The inner collect*() helpers decide whether
+  // to offer reuse based on process.env, so we strip the Cliq values out
+  // of process.env to suppress those follow-up confirmations.
+  let reuseAll = false;
+  if (allPresent) {
+    reuseAll = ensureAnswer(await p.confirm({
+      message: 'Found a complete Zoho Cliq configuration in .env. Reuse it (skip all prompts)?',
+      initialValue: true,
+    }));
+    setupLog.userInput('zoho_cliq_reuse_all', reuseAll ? 'yes' : 'no');
+    if (!reuseAll) {
+      delete process.env.ZOHO_CLIQ_BOT_UNIQUE_NAME;
+      delete process.env.ZOHO_CLIQ_CHANNEL_ENDPOINT;
+      delete process.env.ZOHO_CLIQ_CHAT_ID;
+      delete process.env.ZOHO_CLIQ_CLIENT_ID;
+      delete process.env.ZOHO_CLIQ_CLIENT_SECRET;
+      delete process.env.ZOHO_CLIQ_REFRESH_TOKEN;
+    }
+  }
+
+  let botUniqueName: string;
+  let channelEndpoint: string;
+  let chatId: string;
+  let clientId: string;
+  let clientSecret: string;
+  let refreshToken: string;
+
+  if (reuseAll) {
+    // User confirmed full reuse: pull every value from .env, skip every
+    // prompt, skip the browser OAuth flow.
+    p.log.info('Using existing Zoho Cliq configuration from .env — skipping prompts.');
+    botUniqueName = dotenv.ZOHO_CLIQ_BOT_UNIQUE_NAME!.trim();
+    channelEndpoint = dotenv.ZOHO_CLIQ_CHANNEL_ENDPOINT!.trim();
+    chatId = dotenv.ZOHO_CLIQ_CHAT_ID!.trim();
+    clientId = dotenv.ZOHO_CLIQ_CLIENT_ID!.trim();
+    clientSecret = dotenv.ZOHO_CLIQ_CLIENT_SECRET!.trim();
+    refreshToken = dotenv.ZOHO_CLIQ_REFRESH_TOKEN!.trim();
+  } else {
+    botUniqueName = await collectBotUniqueName();
+    channelEndpoint = await collectChannelEndpoint();
+    chatId = await collectChatId();
+    ({ clientId, clientSecret } = await collectClientCredentials());
+
+    const apiUrlForOAuth = new URL(channelEndpoint).origin;
+    const accountsUrlForOAuth = deriveAccountsUrl(apiUrlForOAuth);
+    p.note(
+      [
+        `Derived accounts URL: ${k.cyan(accountsUrlForOAuth)}`,
+        '',
+        k.dim('This is used for OAuth token operations.'),
+      ].join('\n'),
+      'Zoho Accounts URL',
+    );
+
+    // Refresh-token reuse: only offer if the user hasn't already declined a
+    // full reconfigure at the top-level prompt. If `allPresent` was true and
+    // they said "no" to reuse-all, treat that as "redo everything fresh" —
+    // skip the per-field reuse confirmation and go straight to OAuth.
+    const existingRefreshToken = dotenv.ZOHO_CLIQ_REFRESH_TOKEN?.trim();
+    if (existingRefreshToken && !allPresent) {
+      const reuse = ensureAnswer(await p.confirm({
+        message: `Found an existing Zoho Cliq refresh token (${existingRefreshToken.slice(0, 8)}…). Use it?`,
+        initialValue: true,
+      }));
+      if (reuse) {
+        refreshToken = existingRefreshToken;
+        setupLog.userInput('zoho_cliq_refresh_token', 'reused-existing');
+      } else {
+        refreshToken = await runOAuthFlow(clientId, clientSecret, accountsUrlForOAuth);
+      }
+    } else {
+      refreshToken = await runOAuthFlow(clientId, clientSecret, accountsUrlForOAuth);
+    }
+  }
+
+  const apiUrl = new URL(channelEndpoint).origin;
   const accountsUrl = deriveAccountsUrl(apiUrl);
-
-  p.note(
-    [
-      `Derived accounts URL: ${k.cyan(accountsUrl)}`,
-      '',
-      k.dim('This is used for OAuth token operations.'),
-    ].join('\n'),
-    'Zoho Accounts URL',
-  );
-
-  const refreshToken = await runOAuthFlow(clientId, clientSecret, accountsUrl);
 
   // Fetch the authenticated user's ID for agent wiring.
   const userId = await fetchMyUserId(apiUrl, clientId, clientSecret, refreshToken, accountsUrl);
 
   // Verify connectivity: post a test message and fetch recent messages.
-  await verifyConnection(apiUrl, clientId, clientSecret, refreshToken, accountsUrl, chatIds.split(',')[0].trim());
+  await verifyConnection(channelEndpoint, botUniqueName, clientId, clientSecret, refreshToken, accountsUrl, chatId);
 
-  // Use the first configured chat as the primary DM platform ID.
-  const primaryChatId = chatIds.split(',')[0].trim();
+  const primaryChatId = chatId;
 
   const rawLog = setupLog.stepRawLog('add-zoho-cliq');
   const start = Date.now();
@@ -98,11 +194,13 @@ export async function runZohoCliqChannel(displayName: string): Promise<void> {
         ZOHO_CLIQ_CLIENT_ID: clientId,
         ZOHO_CLIQ_CLIENT_SECRET: clientSecret,
         ZOHO_CLIQ_REFRESH_TOKEN: refreshToken,
+        ZOHO_CLIQ_CHANNEL_ENDPOINT: channelEndpoint,
+        ZOHO_CLIQ_BOT_UNIQUE_NAME: botUniqueName,
         ZOHO_CLIQ_API_URL: apiUrl,
         ZOHO_CLIQ_ACCOUNTS_URL: accountsUrl,
-        ZOHO_CLIQ_CHAT_IDS: chatIds,
+        ZOHO_CLIQ_CHAT_ID: chatId,
       },
-      extraFields: { API_URL: apiUrl, CHAT_IDS: chatIds },
+      extraFields: { CHANNEL_ENDPOINT: channelEndpoint, BOT_UNIQUE_NAME: botUniqueName, CHAT_ID: chatId },
     },
   );
   const durationMs = Date.now() - start;
@@ -152,6 +250,20 @@ async function collectClientCredentials(): Promise<{
   clientId: string;
   clientSecret: string;
 }> {
+  const existingClientId = process.env.ZOHO_CLIQ_CLIENT_ID?.trim();
+  const existingClientSecret = process.env.ZOHO_CLIQ_CLIENT_SECRET?.trim();
+  if (existingClientId && existingClientSecret) {
+    const reuse = ensureAnswer(await p.confirm({
+      message: `Found existing Zoho Cliq OAuth credentials (${existingClientId.slice(0, 8)}…). Use them?`,
+      initialValue: true,
+    }));
+    if (reuse) {
+      setupLog.userInput('zoho_cliq_client_id', 'reused-existing');
+      setupLog.userInput('zoho_cliq_client_secret', 'reused-existing');
+      return { clientId: existingClientId, clientSecret: existingClientSecret };
+    }
+  }
+
   p.note(
     [
       'Your assistant connects to Zoho Cliq via a server-based OAuth2 app.',
@@ -192,17 +304,50 @@ async function collectClientCredentials(): Promise<{
   return { clientId, clientSecret };
 }
 
-async function collectApiUrl(): Promise<string> {
+async function collectChannelEndpoint(): Promise<string> {
+  const existing = process.env.ZOHO_CLIQ_CHANNEL_ENDPOINT?.trim();
+  if (existing) {
+    try {
+      if (/\/api\/v2\/channelsbyname\/[^/]+\/message$/i.test(new URL(existing).pathname)) {
+        const reuse = ensureAnswer(await p.confirm({
+          message: `Found an existing channel endpoint (${existing.slice(0, 48)}…). Use it?`,
+          initialValue: true,
+        }));
+        if (reuse) {
+          setupLog.userInput('zoho_cliq_channel_endpoint', 'reused-existing');
+          return existing;
+        }
+      }
+    } catch {
+      // Ignore invalid existing value and fall back to prompting.
+    }
+  }
+
+  p.note(
+    [
+      'Get the channel endpoint and chat ID from Zoho Cliq:',
+      '',
+      '  1. Open the target channel in Zoho Cliq',
+      '  2. Click the channel icon',
+      '  3. Open Connectors',
+      '  4. Copy the channel message endpoint and chat ID',
+    ].join('\n'),
+    'Channel details',
+  );
+
   const answer = (ensureAnswer(
     await p.text({
-      message: 'Paste your Zoho Cliq base URL (just the domain, not a webhook URL)',
-      placeholder: 'https://cliq.zoho.com',
+      message: 'Paste your Zoho Cliq channel message endpoint',
+      placeholder: 'https://cliq.zoho.com/api/v2/channelsbyname/my_channel/message',
       validate: (v) => {
-        if (!v || !v.trim()) return 'API URL is required';
+        if (!v || !v.trim()) return 'Channel endpoint is required';
         try {
           const url = new URL(v.trim());
           if (!url.hostname.includes('cliq.')) {
-            return 'URL should contain cliq. (e.g. https://cliq.zoho.com, https://cliq.zoho.in)';
+            return 'URL should be a Zoho Cliq API URL (e.g. https://cliq.zoho.com/api/v2/channelsbyname/my_channel/message)';
+          }
+          if (!url.pathname.includes('/channelsbyname/') || !url.pathname.endsWith('/message')) {
+            return 'URL must follow the format: https://cliq.zoho.com/api/v2/channelsbyname/<CHANNEL_NAME>/message';
           }
         } catch {
           return 'Not a valid URL';
@@ -212,39 +357,72 @@ async function collectApiUrl(): Promise<string> {
     }),
   ) as string).trim();
 
-  // Extract just the origin — users often paste a full webhook/channel URL.
-  const baseUrl = new URL(answer).origin;
-  setupLog.userInput('zoho_cliq_api_url', baseUrl);
-  return baseUrl;
+  setupLog.userInput('zoho_cliq_channel_endpoint', answer);
+  return answer;
 }
 
-async function collectChatIds(): Promise<string> {
-  p.note(
-    [
-      'The adapter only polls chats you explicitly list.',
-      'Find your chat IDs in Zoho Cliq:',
-      '',
-      '  1. Open a chat in Zoho Cliq (web)',
-      '  2. The URL looks like: cliq.zoho.com/chats/<CHAT_ID>',
-      '  3. Copy the chat ID from the URL',
-      '',
-      k.dim('Separate multiple IDs with commas: id1,id2,id3'),
-    ].join('\n'),
-    'Which chats should the agent listen to?',
-  );
+async function collectBotUniqueName(): Promise<string> {
+  const existing = process.env.ZOHO_CLIQ_BOT_UNIQUE_NAME?.trim();
+  if (existing) {
+    const reuse = ensureAnswer(await p.confirm({
+      message: `Found an existing bot unique name (${existing}). Use it?`,
+      initialValue: true,
+    }));
+    if (reuse) {
+      setupLog.userInput('zoho_cliq_bot_unique_name', 'reused-existing');
+      return existing;
+    }
+  }
 
   const answer = (ensureAnswer(
     await p.text({
-      message: 'Paste your chat ID(s)',
-      placeholder: 'chat_id_1,chat_id_2',
+      message: 'Paste your Zoho Cliq bot unique name',
+      placeholder: 'my_bot',
       validate: (v) => {
-        if (!v || !v.trim()) return 'At least one chat ID is required';
+        if (!v || !v.trim()) return 'Bot unique name is required';
         return undefined;
       },
     }),
   ) as string).trim();
 
-  setupLog.userInput('zoho_cliq_chat_ids', answer);
+  setupLog.userInput('zoho_cliq_bot_unique_name', answer);
+  return answer;
+}
+
+async function collectChatId(): Promise<string> {
+  const existing = process.env.ZOHO_CLIQ_CHAT_ID?.trim();
+  if (existing) {
+    const reuse = ensureAnswer(await p.confirm({
+      message: `Found an existing chat ID (${existing}). Use it?`,
+      initialValue: true,
+    }));
+    if (reuse) {
+      setupLog.userInput('zoho_cliq_chat_id', 'reused-existing');
+      return existing;
+    }
+  }
+
+  p.note(
+    [
+      'Make sure your bot is added to the channel before continuing.',
+      '',
+      'Use the same channel icon → Connectors screen to copy the chat ID.',
+    ].join('\n'),
+    'Add bot to channel',
+  );
+
+  const answer = (ensureAnswer(
+    await p.text({
+      message: 'Paste the chat ID of the channel where the bot is added',
+      placeholder: 'CT_1424358622861866713_922179757',
+      validate: (v) => {
+        if (!v || !v.trim()) return 'Chat ID is required';
+        return undefined;
+      },
+    }),
+  ) as string).trim();
+
+  setupLog.userInput('zoho_cliq_chat_id', answer);
   return answer;
 }
 
@@ -463,7 +641,8 @@ async function fetchMyUserId(
  * Post a test message to the chat and fetch recent messages to verify connectivity.
  */
 async function verifyConnection(
-  apiUrl: string,
+  channelEndpoint: string,
+  botUniqueName: string,
   clientId: string,
   clientSecret: string,
   refreshToken: string,
@@ -493,8 +672,9 @@ async function verifyConnection(
     }
     const headers = { Authorization: `Zoho-oauthtoken ${tokenData.access_token}` };
 
-    // Post a test message.
-    const postRes = await fetch(`${apiUrl}/api/v2/chats/${chatId}/message`, {
+    // Post a test message via the bot endpoint.
+    const sendUrl = `${channelEndpoint}?bot_unique_name=${encodeURIComponent(botUniqueName)}`;
+    const postRes = await fetch(sendUrl, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: '👋 NanoClaw connected successfully.' }),
@@ -505,8 +685,9 @@ async function verifyConnection(
       return;
     }
 
-    // Fetch recent messages.
-    const msgRes = await fetch(`${apiUrl}/api/v2/chats/${chatId}/messages?limit=5`, { headers });
+    // Fetch recent messages using the configured chat ID.
+    const apiBase = new URL(channelEndpoint).origin;
+    const msgRes = await fetch(`${apiBase}/api/v2/chats/${chatId}/messages?limit=5`, { headers });
     if (msgRes.ok) {
       const msgData = (await msgRes.json()) as { data?: Array<{ text?: string; content?: { text?: string }; sender?: { name?: string } }> };
       const messages = msgData.data ?? [];

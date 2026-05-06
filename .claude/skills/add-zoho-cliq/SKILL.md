@@ -18,6 +18,12 @@ Skip to **Credentials** if all of these are already in place:
 - `src/channels/zoho-cliq.ts` exists
 - `src/channels/index.ts` contains `import './zoho-cliq.js';`
 - `setup/channels/zoho-cliq.ts` exists
+- `setup/add-zoho-cliq.sh` exists
+- `setup/install-zoho-cliq.sh` exists
+- `setup/auto.ts` imports `runZohoCliqChannel` from `./channels/zoho-cliq.js`
+- `setup/auto.ts` includes `'zoho-cliq'` in `ChannelChoice`
+- `setup/auto.ts` includes picker option `{ value: 'zoho-cliq', label: 'Yes, connect Zoho Cliq' }`
+- `setup/auto.ts` dispatches `channelChoice === 'zoho-cliq'` to `runZohoCliqChannel(displayName!)`
 
 Otherwise continue. Every step below is safe to re-run.
 
@@ -31,7 +37,6 @@ git fetch origin channels
 
 ```bash
 git show origin/channels:src/channels/zoho-cliq.ts > src/channels/zoho-cliq.ts
-git show origin/channels:src/channels/zoho-cliq.test.ts > src/channels/zoho-cliq.test.ts
 git show origin/channels:setup/channels/zoho-cliq.ts > setup/channels/zoho-cliq.ts
 git show origin/channels:setup/add-zoho-cliq.sh > setup/add-zoho-cliq.sh
 git show origin/channels:setup/install-zoho-cliq.sh > setup/install-zoho-cliq.sh
@@ -130,18 +135,27 @@ If you're not using the interactive setup:
 
 ### Configure environment
 
-Add to `.env`:
+The setup flow will collect these 6 required variables. Add to `.env` if you want to reuse them:
 
 ```bash
+ZOHO_CLIQ_BOT_UNIQUE_NAME=my_bot
+ZOHO_CLIQ_CHANNEL_ENDPOINT=https://cliq.zoho.com/api/v2/channelsbyname/my_channel/message
+ZOHO_CLIQ_CHAT_ID=CT_1424358622861866713_922179757
 ZOHO_CLIQ_CLIENT_ID=your-client-id
 ZOHO_CLIQ_CLIENT_SECRET=your-client-secret
 ZOHO_CLIQ_REFRESH_TOKEN=your-refresh-token
-ZOHO_CLIQ_API_URL=https://cliq.zoho.com
-ZOHO_CLIQ_ACCOUNTS_URL=https://accounts.zoho.com
-ZOHO_CLIQ_CHAT_IDS=chat_id_1,chat_id_2
 ```
 
-Set `ZOHO_CLIQ_API_URL` to the Cliq endpoint for your datacenter (e.g. `https://cliq.zoho.in` for India). `ZOHO_CLIQ_ACCOUNTS_URL` is the matching accounts endpoint (e.g. `https://accounts.zoho.in`). `ZOHO_CLIQ_CHAT_IDS` is a comma-separated list of chat IDs to poll.
+- `ZOHO_CLIQ_BOT_UNIQUE_NAME` — the bot's unique identifier in Zoho Cliq
+- `ZOHO_CLIQ_CHANNEL_ENDPOINT` — the channel message endpoint (from channel info → Connectors)
+- `ZOHO_CLIQ_CHAT_ID` — Channel's chat ID to poll
+- `ZOHO_CLIQ_CLIENT_ID`, `ZOHO_CLIQ_CLIENT_SECRET` — OAuth app credentials
+- `ZOHO_CLIQ_REFRESH_TOKEN` — OAuth refresh token (doesn't expire like access tokens)
+
+**Env reuse**: The setup flow detects existing configuration:
+- If **all 6 variables are present**, you'll be asked "Reuse entire config?" (skip all prompts)
+- If you decline, each field will offer an individual "Use existing?" prompt
+- The Cliq API URL and accounts domain are automatically derived from the channel endpoint, so you don't need to set them
 
 Sync to container: `mkdir -p data/env && cp .env data/env/env`
 
@@ -155,7 +169,7 @@ Otherwise, run `/manage-channels` to wire this channel to an agent group.
 
 - **type**: `zoho-cliq`
 - **terminology**: Zoho Cliq has "channels" (topic-based, like Slack channels) and "chats" (DMs or group conversations). Bots are a special chat type.
-- **how-to-find-id**: The platform ID format is `zoho-cliq:<chat_id>`. To find a chat ID: open the chat/channel in Zoho Cliq web, click the info icon → Connectors → the API endpoint URL contains the chat ID. For channels, the channel info panel shows the Channel ID.
+- **how-to-find-id**: The platform ID format is `zoho-cliq:<chat_id>`. To find the Chat ID: open the chat/channel in Zoho Cliq web, click the info icon → Connectors. The Chat ID is displayed in the channel info panel.
 - **supports-threads**: no (Cliq has threads but the adapter treats channels/chats as the primary unit)
 - **typical-use**: Interactive chat — DMs, group chats, or organization channels
 - **default-isolation**: Same agent group for your personal chats. Separate agent group for channels with different teams or organizational boundaries.
