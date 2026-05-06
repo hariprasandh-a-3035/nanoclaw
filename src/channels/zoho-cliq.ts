@@ -82,7 +82,16 @@ function createAdapter(): ChannelAdapter | null {
   const apiBase = env.ZOHO_CLIQ_API_URL ?? (channelEndpoint ? new URL(channelEndpoint).origin : '');
   const accountsBase = env.ZOHO_CLIQ_ACCOUNTS_URL;
 
-  if (!clientId || !clientSecret || !refreshToken || !channelEndpoint || !botUniqueName || (!apiBase && !channelEndpoint) || !accountsBase) return null;
+  if (
+    !clientId ||
+    !clientSecret ||
+    !refreshToken ||
+    !channelEndpoint ||
+    !botUniqueName ||
+    (!apiBase && !channelEndpoint) ||
+    !accountsBase
+  )
+    return null;
 
   // Single chat ID configured during setup.
   const configuredChatIds = (env.ZOHO_CLIQ_CHAT_ID || env.ZOHO_CLIQ_CHAT_IDS || '')
@@ -175,7 +184,9 @@ function createAdapter(): ChannelAdapter | null {
       // a retry hint (Retry-After, X-RateLimit-Reset, X-RateLimit-Remaining,
       // or any vendor-specific header) when we get rate-limited.
       const headers: Record<string, string> = {};
-      res.headers.forEach((value, key) => { headers[key] = value; });
+      res.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
       log.error('Zoho Cliq token: refresh request failed', {
         status: res.status,
         statusText: res.statusText,
@@ -200,11 +211,7 @@ function createAdapter(): ChannelAdapter | null {
     // restart (back to original behaviour).
     try {
       fs.mkdirSync(path.dirname(TOKEN_CACHE_PATH), { recursive: true });
-      fs.writeFileSync(
-        TOKEN_CACHE_PATH,
-        JSON.stringify({ accessToken, expiresAt: tokenExpiresAt }),
-        { mode: 0o600 },
-      );
+      fs.writeFileSync(TOKEN_CACHE_PATH, JSON.stringify({ accessToken, expiresAt: tokenExpiresAt }), { mode: 0o600 });
       log.info('Zoho Cliq token: refreshed and persisted', {
         path: TOKEN_CACHE_PATH,
         expiresIn: Math.round((tokenExpiresAt - Date.now()) / 1000) + 's',
@@ -237,7 +244,11 @@ function createAdapter(): ChannelAdapter | null {
       // Drop the disk cache too — a 401 means the cached token is dead
       // (revoked, expired, or otherwise rejected) and reusing it on next
       // restart would just re-trigger this same 401 cycle.
-      try { fs.unlinkSync(TOKEN_CACHE_PATH); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(TOKEN_CACHE_PATH);
+      } catch {
+        /* ignore */
+      }
       const newToken = await ensureToken();
       (opts.headers as Record<string, string>).Authorization = `Zoho-oauthtoken ${newToken}`;
       const retry = await fetch(`${apiBase}/api/v2${path}`, opts);
